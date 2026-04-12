@@ -1,93 +1,80 @@
-# Итоговый проект
+#  Финальный проект: Яблочки.Go
 
+В некоторой стране N местные жители очень любят яблоки, но очень не любят выходить из дома. Компания "Яблекс" решила заработать на этом и запустила в этой стране приложение "Яблочки.Go": оно позволяет клиентам заказывать их любимое лакомство с доставкой прямо домой!
 
+Ваша задача — написать один из сервисов по обработке заказов. Разумеется, это будет высоконагруженный сервис, поэтому без многопоточности тут не обойтись
 
-## Getting started
+![img.png](img.png)
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+# Описание предметной области 
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Подробнее смотри в документе [DESCRIPTION.md](DESCRIPTION.md)
 
-## Add your files
+Есть различные сорта яблок, которые хранятся на складе.
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+Яблоки поступают на склад партиями от поставщиков. Каждая партия имеет конкретный сорт, количество и срок годности
 
-```
-cd existing_repo
-git remote add origin https://git.culab.ru/course-projects/multithreading-2026/final_project.git
-git branch -M main
-git push -uf origin main
-```
+Потребители яблок (покупатели) оставляют заказы через приложение. Если заказ может быть удовлетворён, наш сервис должен зарезервировать все необходимые яблоки, подтвердить заказ и запустить его доставку. Покупателем важна свежесть яблок, что должно учитываться при обработке заказа
 
-## Integrate with your tools
+Отправка заказа происходит через взаимодействие с внешним сервисом доставки и может занимать некоторое время. Пока идет доставка, клиент может отменить свой заказ — тогда яблоки возвращаются на склад и это должно быть учтено
 
-* [Set up project integrations](https://git.culab.ru/course-projects/multithreading-2026/final_project/-/settings/integrations)
+У яблок может истечь срок годности, тогда их надо убрать со склада (антисанитария — это плохо!) и отправить на переработку в компостере, который представлен внешним сервисом
 
-## Collaborate with your team
+# Что нужно сделать
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+В [service.go](src/service.go) находится частичная реализация сервиса, написанная вашим предшественником. Ваша задача — разобраться, почему сервис очень плохой с точки зрения производительности и эффективности. После этого перепишите этот сервис, чтобы он стал эффективным, потокобезопасным и **полностью** удовлетворял интерфейсам [SupplierApi](src/api/supplier.go) и [ConsumerApi](src/api/consumer.go)
 
-## Test and Deploy
+Можно добавлять новые функции, структуры и классы, в существующих и новых файлах, но **нельзя** изменять следующие файлы:
 
-Use the built-in continuous integration in GitLab.
+Внешние сервисы (из развивают и пишут другие команды вашей компании):
+- [composter.go](src/external_services/composter.go)
+- [composter_impl.go](src/external_services/composter_impl.go)
+- [delivery.go](src/external_services/delivery.go)
+- [delivery_impl.go](src/external_services/delivery_impl.go)
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Контракт взаимодействия (поставщики и клиенты будут взаимодействовать с нашим сервисом только через них):
+- [consumer.go](src/api/consumer.go)
+- [supplier.go](src/api/supplier.go)
 
-***
+# Критерии оценки
 
-# Editing this README
+За проект можно получить **максимум** 10 баллов. Технически максимально возможная сумма по нижеуказанным критериям превышает 10 баллов: это сделано с целью того, что было больше возможностей набрать баллы.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Анализ существующего кода сервиса (0-1 балла)
+- 1 балл: в [REVIEW.md](REVIEW.md) описано как минимум четыре ошибки в коде существующего сервиса [service.go](src/service.go) с точки зрения многопоточности, для каждой ошибки в одном-двух предложениях описан сценарий возникновения и последствия
+- 0 баллов иначе
 
-## Suggestions for a good README
+## Корректность SupplierApi (0-2 балла)
+- 2 балла: сервис полностью удовлетворяет интерфейсу [SupplierApi](src/api/supplier.go), учитывая условия блокировки поставщика при отсутствии мест на парковке
+- 1 балл: сервис полностью удовлетворяет интерфейсу [SupplierApi](src/api/supplier.go), но не учитывает занятость парковки
+- 0 баллов иначе; **это критичный критерий**: при невыполнении максимальная оценка за весь проект: 2/10
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## Корректность ConsumerApi (0-3 балла)
+- 3 балла: сервис полностью удовлетворяет интерфейсу [ConsumerApi](src/api/consumer.go), поддерживает заказы типов: `SimpleOrder`, `MultiOrder`, `AnyApplesOrder` и их отмену. Заказ клиента должен приводить к вызову [DeliveryService](src/external_services/delivery.go)
+- 2 балла: поддерживает только `SimpleOrder`, `MultiOrder` и их отмену. Заказ клиента должен приводить к вызову [DeliveryService](src/external_services/delivery.go)
+- 1 балл: поддерживает только `SimpleOrder` и отмену. Заказ клиента должен приводить к вызову [DeliveryService](src/external_services/delivery.go)
+- 0 баллов иначе; **это критичный критерий**: при невыполнении максимальная оценка за весь проект: 2/10
 
-## Name
-Choose a self-explaining name for your project.
+## Утилизация старых яблок (0-2 балла)
+- 2 балла: старые яблоки утилизуются с помощью компостера в отдельно работающей горутине с помощью [ComposterService](src/external_services/composter.go)
+- 0 баллов иначе
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Многопоточность (0-2 балла)
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+- 2 балла: решение полностью потокобезопасно, написан корректный стресс-тест. Для защиты информации о количестве яблок используется не один мьютекс для всех яблок, а более изящный способ
+- 1 балл: решение потокобезопасно, написан корректный стресс-тест
+- 0 баллов иначе; **это критичный критерий**: при невыполнении максимальная оценка за весь проект: 2/10
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Стресс тест должен покрывать все функции Api потребителей и поставщиков
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Эффективность (0-2 балла)
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+- 2 балла: для хранения информации о количестве яблок на складе используется структура данных со средней сложностью `O(log n)`
+- 1 балл: для хранения информации о количестве яблок на складе используется структура данных со средней сложностью `O(n)`
+- 0 баллов иначе 
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## Общая чистота кода: (0-2 балла)
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- 2 балла: написаны юнит тесты; сервис не написан в одном файле, а разбит на отдельные компоненты, код написан чисто
+- 1 балл: написаны юнит тесты для сервиса
+- 0 баллов иначе
