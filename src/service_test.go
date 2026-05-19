@@ -276,9 +276,6 @@ func TestComposterDisposesExpired(t *testing.T) {
 
 // --- стресс-тест ---
 
-// TestStress эмулирует много поставщиков и покупателей одновременно.
-// Покрытие: BeginUnloading/FinishUnloading, PlaceOrderSimple/Multi/Any, Cancel, фоновый компостер.
-// Запускайте `go test -race`.
 func TestStress(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in -short mode")
@@ -335,7 +332,6 @@ func TestStress(t *testing.T) {
 		}()
 	}
 
-	// Покупатели
 	var (
 		orderIDs sync.Map // map[int64]int customerID
 	)
@@ -409,7 +405,6 @@ func TestStress(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	// Дожидаемся завершения всех доставок.
 	s.orders.Stop()
 
 	t.Logf("stress finished: delivered=%d failed=%d cancelled=%d stored=%d",
