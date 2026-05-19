@@ -1,5 +1,3 @@
-// Package src — фасад сервиса «Яблочки.Go».
-//
 // Service склеивает четыре подсистемы:
 //
 //   - storage.Storage           — потокобезопасный склад с per-variety мьютексами и B-tree (O(log n)).
@@ -21,7 +19,6 @@ import (
 	"time"
 )
 
-// ServiceConfig — параметры сервиса. Поля Now и ComposterInterval опциональны.
 type ServiceConfig struct {
 	SuppliersParkingSize int
 	DeliveryService      DeliveryService
@@ -29,11 +26,9 @@ type ServiceConfig struct {
 
 	// ComposterInterval — частота проверки просрочки. 0 = значение по умолчанию.
 	ComposterInterval time.Duration
-	// Now — источник времени (для тестов). nil = time.Now.
-	Now func() time.Time
+	Now               func() time.Time
 }
 
-// Service реализует SupplierApi и ConsumerApi.
 type Service struct {
 	storage   *storage.Storage
 	parking   *parking.Parking
@@ -44,7 +39,6 @@ type Service struct {
 var _ api.ConsumerApi = (*Service)(nil)
 var _ api.SupplierApi = (*Service)(nil)
 
-// NewService создаёт и запускает сервис.
 func NewService(config ServiceConfig) *Service {
 	now := config.Now
 	if now == nil {
@@ -96,8 +90,6 @@ func (s *Service) Cancel(customerID int, orderID int64) error {
 	return s.orders.Cancel(customerID, orderID)
 }
 
-// Stop корректно останавливает сервис (для тестов и shutdown).
-// Останавливает компостер, дожидается завершения текущих доставок, закрывает парковку.
 func (s *Service) Stop() {
 	if s.composter != nil {
 		s.composter.Stop()
@@ -106,7 +98,6 @@ func (s *Service) Stop() {
 	s.parking.Stop()
 }
 
-// TotalStored — диагностический метод для тестов.
 func (s *Service) TotalStored() int {
 	return s.storage.TotalQuantity()
 }
