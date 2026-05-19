@@ -1,182 +1,112 @@
+// Package src — фасад сервиса «Яблочки.Go».
+//
+// Service склеивает четыре подсистемы:
+//
+//   - storage.Storage           — потокобезопасный склад с per-variety мьютексами и B-tree (O(log n)).
+//   - parking.Parking           — парковка с семафор-каналом и сессиями разгрузки.
+//   - orders.Manager            — размещение заказов и доставка через DeliveryService.
+//   - composter.Worker          — фоновая утилизация просроченных яблок.
+//
+// Сам Service не содержит общего состояния, требующего блокировок: всё делегировано подкомпонентам.
 package src
 
 import (
-	"context"
 	"final-project/src/api"
 	. "final-project/src/common"
+	"final-project/src/composter"
 	. "final-project/src/external_services"
-	"sort"
+	"final-project/src/orders"
+	"final-project/src/parking"
+	"final-project/src/storage"
 	"time"
 )
 
+// ServiceConfig — параметры сервиса. Поля Now и ComposterInterval опциональны.
 type ServiceConfig struct {
-	SuppliersParkingSize int //вместимость парковки для поставщиков
+	SuppliersParkingSize int
 	DeliveryService      DeliveryService
 	ComposterService     ComposterService
+
+	// ComposterInterval — частота проверки просрочки. 0 = значение по умолчанию.
+	ComposterInterval time.Duration
+	// Now — источник времени (для тестов). nil = time.Now.
+	Now func() time.Time
 }
 
-// Service сейчас это очень плохая _частичная_ реализация сервиса заказов, сделанная вашим предшественником.
-// В ней очень много проблем и антипаттернов, но она _частично_ реализует необходимый функционал
+// Service реализует SupplierApi и ConsumerApi.
 type Service struct {
-	//тут храним все яблоки на складе
-	apples []ApplesWithBestBefore
-
-	// каналы для поставщиков - свободные
-	freeChan []chan ApplesWithBestBefore
-	// каналы для поставщиков - занятые
-	idToChan map[int64]chan ApplesWithBestBefore
-
-	//глобальный идентификатор заказа клиента
-	nextOrderId int64
-
-	deliveryService  DeliveryService
-	composterService ComposterService
+	storage   *storage.Storage
+	parking   *parking.Parking
+	orders    *orders.Manager
+	composter *composter.Worker
 }
 
-// наш сервис должен удовлетворять API для покупателей и для поставщиков, специальный Гошный трюк
 var _ api.ConsumerApi = (*Service)(nil)
 var _ api.SupplierApi = (*Service)(nil)
 
+// NewService создаёт и запускает сервис.
 func NewService(config ServiceConfig) *Service {
+	now := config.Now
+	if now == nil {
+		now = time.Now
+	}
+	st := storage.New()
+	pk := parking.New(config.SuppliersParkingSize, st)
+	om := orders.New(st, config.DeliveryService, now)
 
-	freeChan := make([]chan ApplesWithBestBefore, 0, config.SuppliersParkingSize)
-	for i := 0; i < config.SuppliersParkingSize; i++ {
-		freeChan = append(freeChan, make(chan ApplesWithBestBefore))
+	var cw *composter.Worker
+	if config.ComposterService != nil {
+		cw = composter.NewWorker(st, config.ComposterService, config.ComposterInterval, now)
+		cw.Start()
 	}
 
 	return &Service{
-		freeChan:         freeChan,
-		idToChan:         make(map[int64]chan ApplesWithBestBefore),
-		nextOrderId:      1,
-		deliveryService:  config.DeliveryService,
-		composterService: config.ComposterService,
+		storage:   st,
+		parking:   pk,
+		orders:    om,
+		composter: cw,
 	}
 }
 
-func (s *Service) BeginUnloading(SupplierID int64) (chan<- ApplesWithBestBefore, error) {
-	// поставщик ждет, пока на парковке появится свободное место
-	for len(s.freeChan) == 0 {
-		time.Sleep(13 * time.Millisecond)
-	}
+// --- SupplierApi ---
 
-	ch := s.freeChan[len(s.freeChan)-1]
-	s.freeChan = s.freeChan[:len(s.freeChan)-1]
-
-	// запускаем горутину, перекладывающую яблоки от поставщика на склад
-	go func() {
-		for {
-			select {
-			case box, ok := <-ch:
-				if !ok {
-					return
-				}
-				s.apples = append(s.apples, box)
-			default:
-				time.Sleep(42 * time.Millisecond)
-			}
-		}
-	}()
-
-	// этот канал теперь занят поставщиком.
-	s.idToChan[SupplierID] = ch
-	return ch, nil
+func (s *Service) BeginUnloading(supplierID int64) (chan<- ApplesWithBestBefore, error) {
+	return s.parking.BeginUnloading(supplierID)
 }
 
 func (s *Service) FinishUnloading(supplierID int64) error {
-	// поставщик освободил канал - кладем в лист доступных
-	s.freeChan = append(s.freeChan, s.idToChan[supplierID])
-	delete(s.idToChan, supplierID)
-	return nil
+	return s.parking.FinishUnloading(supplierID)
 }
 
+// --- ConsumerApi ---
+
 func (s *Service) PlaceOrderSimple(order api.SimpleOrder) (int64, error) {
-
-	//упорядочиваем яблоки по дате срока годности
-	sort.Slice(s.apples, func(i, j int) bool {
-		return s.apples[i].BestBefore.Before(s.apples[j].BestBefore)
-	})
-
-	if order.Request.Quantity <= 0 {
-		return 0, ErrInvalidRequest
-	}
-
-	//сколько яблок осталось зарезервировать
-	remaining := order.Request.Quantity
-
-	//тут собираем заказанные яблоки
-	toDeliver := make([]ApplesWithBestBefore, 0)
-
-	for i, item := range s.apples {
-		if item.Quantity > 0 {
-			if item.Variety == order.Request.Variety {
-				if item.BestBefore.After(order.MinAllowedBestBefore) {
-
-					selected := minInt(item.Quantity, remaining)
-					toDeliver = append(toDeliver, ApplesWithBestBefore{
-						Apples: Apples{
-							Variety:  item.Variety,
-							Quantity: selected,
-						},
-						BestBefore: item.BestBefore,
-					})
-
-					//уменьшаем количество яблок на складе
-					s.apples[i].Quantity -= selected
-					remaining -= selected
-
-					// собрали весь заказ - отправляем через сервис доставки
-					if remaining == 0 {
-						return s.startDelivery(order.CustomerID, toDeliver), nil
-					}
-				}
-			}
-		}
-	}
-
-	//не смогли собрать весь заказ - возвращаем яблоки на склад
-	s.revertReservation(toDeliver)
-	return 0, ErrInsufficientQuantity
+	return s.orders.PlaceSimple(order.CustomerID, order.Request, order.MinAllowedBestBefore)
 }
 
 func (s *Service) PlaceOrderMulti(order api.MultiOrder) (int64, error) {
-	panic("not implemented")
+	return s.orders.PlaceMulti(order.CustomerID, order.Request, order.MinAllowedBestBefore)
 }
 
 func (s *Service) PlaceOrderAny(order api.AnyApplesOrder) (int64, error) {
-	panic("not implemented")
+	return s.orders.PlaceAny(order.CustomerID, order.Quantity, order.MinAllowedBestBefore)
 }
 
 func (s *Service) Cancel(customerID int, orderID int64) error {
-	panic("not implemented")
+	return s.orders.Cancel(customerID, orderID)
 }
 
-func (s *Service) startDelivery(customerID int, items []ApplesWithBestBefore) int64 {
-	orderID := s.nextOrderId
-	go s.sendApplesToClient(DeliveryRequest{CustomerID: customerID, OrderID: orderID, Items: items})
-	s.nextOrderId++
-	return orderID
-}
-
-func (s *Service) sendApplesToClient(request DeliveryRequest) {
-	err := s.deliveryService.DoDelivery(context.TODO(), request)
-
-	//курьер не смог доставить - возвращаем яблоки на склад
-	if err != nil {
-		s.revertReservation(request.Items)
+// Stop корректно останавливает сервис (для тестов и shutdown).
+// Останавливает компостер, дожидается завершения текущих доставок, закрывает парковку.
+func (s *Service) Stop() {
+	if s.composter != nil {
+		s.composter.Stop()
 	}
+	s.orders.Stop()
+	s.parking.Stop()
 }
 
-func (s *Service) revertReservation(items []ApplesWithBestBefore) {
-	for _, item := range items {
-		if item.Quantity > 0 {
-			s.apples = append(s.apples, item)
-		}
-	}
-}
-
-func minInt(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+// TotalStored — диагностический метод для тестов.
+func (s *Service) TotalStored() int {
+	return s.storage.TotalQuantity()
 }
